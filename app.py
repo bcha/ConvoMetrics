@@ -647,8 +647,6 @@ if uploaded_file is not None:
 
                 counts_30 = recent_window_counts(30)
                 prev_counts_30 = recent_window_counts(30, offset_days=30)
-                counts_90 = recent_window_counts(90)
-                prev_counts_90 = recent_window_counts(90, offset_days=90)
 
                 trend_summary = timeline_person_stats[
                     ["Participant", "Last_Message"]
@@ -660,24 +658,24 @@ if uploaded_file is not None:
                     lambda row: f"{trend_label(row['Messages (Last 30d)'], int(prev_counts_30.get(row['Participant'], 0)))} ({format_pct_change(row['Messages (Last 30d)'], int(prev_counts_30.get(row['Participant'], 0)))})",
                     axis=1,
                 )
-                trend_summary["Messages (Last 90d)"] = trend_summary["Participant"].map(
-                    counts_90
+                trend_summary["Messages (YTD)"] = trend_summary["Participant"].map(
+                    counts_ytd
                 ).fillna(0).astype(int)
-                trend_summary["90d vs Previous 90d"] = trend_summary.apply(
-                    lambda row: f"{trend_label(row['Messages (Last 90d)'], int(prev_counts_90.get(row['Participant'], 0)))} ({format_pct_change(row['Messages (Last 90d)'], int(prev_counts_90.get(row['Participant'], 0)))})",
+                trend_summary["YTD vs Same Period Last Year"] = trend_summary.apply(
+                    lambda row: f"{trend_label(row['Messages (YTD)'], int(prev_counts_ytd.get(row['Participant'], 0)))} ({format_pct_change(row['Messages (YTD)'], int(prev_counts_ytd.get(row['Participant'], 0)))})",
                     axis=1,
                 )
                 trend_summary["Last Active"] = trend_summary["Last_Message"].dt.strftime(
                     "%Y-%m-%d %H:%M"
                 )
                 trend_summary = trend_summary.drop(columns=["Last_Message"]).sort_values(
-                    by=["Messages (Last 30d)", "Messages (Last 90d)"],
+                    by=["Messages (Last 30d)", "Messages (YTD)"],
                     ascending=False,
                 )
 
                 st.markdown("Simple per-person activity trends for the current filtered timeline.")
                 st.caption(
-                    "\"More active\" and \"Less active\" compare each participant's recent 30-day and 90-day message counts against the immediately preceding matching window. \"Steady\" means the change stayed within +/-15%."
+                    "\"More active\" and \"Less active\" compare each participant's recent 30-day message counts against the immediately preceding 30-day window, and YTD message counts against the same day-count timeframe last year. \"Steady\" means the change stayed within +/-15%."
                 )
                 st.dataframe(
                     trend_summary,
@@ -810,6 +808,7 @@ if uploaded_file is not None:
                 # Combine text and generate Word Cloud
                 all_messages = " ".join(df["message"].astype(str))
                 if len(all_messages.strip()) > 10:
+                    long_word_min_chars = 7
                     word_cloud_col, long_word_cloud_col = st.columns(2)
 
                     wordcloud = WordCloud(
@@ -833,11 +832,13 @@ if uploaded_file is not None:
                         long_words.extend(
                             word
                             for word in extract_meaningful_words(message)
-                            if len(word) > 6
+                            if len(word) >= long_word_min_chars
                         )
 
                     with long_word_cloud_col:
-                        st.markdown("#### Longer Words (>6 Characters)")
+                        st.markdown(
+                            f"#### Longer Words (>={long_word_min_chars} Characters)"
+                        )
                         if long_words:
                             long_wordcloud = WordCloud(
                                 width=1200,
@@ -853,7 +854,9 @@ if uploaded_file is not None:
                             ax_long.axis("off")
                             st.pyplot(fig_long_wc)
                         else:
-                            st.info("No words longer than 6 characters were found.")
+                            st.info(
+                                f"No words with at least {long_word_min_chars} characters were found."
+                            )
 
                     st.markdown("#### Words Outside Finnish Common Word List")
                     uncommon_words = []
@@ -881,6 +884,42 @@ if uploaded_file is not None:
                     else:
                         st.info(
                             "All detected words are present in sanat.txt for the current filters."
+                        )
+
+                    st.markdown(
+                        f"#### Longer Words (>={long_word_min_chars} Characters) Outside Finnish Common Word List"
+                    )
+                    long_uncommon_words = []
+                    for message in df["message"]:
+                        long_uncommon_words.extend(
+                            word
+                            for word in extract_meaningful_words(message)
+                            if word.isalpha()
+                            and word not in finnish_common_words
+                            and len(word) >= long_word_min_chars
+                        )
+
+                    if long_uncommon_words:
+                        long_uncommon_wordcloud = WordCloud(
+                            width=1200,
+                            height=500,
+                            background_color="white",
+                            stopwords=stop_words,
+                            colormap="inferno",
+                            max_words=150,
+                        ).generate(" ".join(long_uncommon_words))
+
+                        fig_long_uncommon_wc, ax_long_uncommon = plt.subplots(
+                            figsize=(15, 6)
+                        )
+                        ax_long_uncommon.imshow(
+                            long_uncommon_wordcloud, interpolation="bilinear"
+                        )
+                        ax_long_uncommon.axis("off")
+                        st.pyplot(fig_long_uncommon_wc)
+                    else:
+                        st.info(
+                            f"No words with at least {long_word_min_chars} characters were found outside sanat.txt."
                         )
                 else:
                     st.info("Not enough textual data to generate a Word Cloud.")
